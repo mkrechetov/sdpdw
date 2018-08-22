@@ -76,7 +76,6 @@ function main(parsed_args)
 
     #--------------------------------Burer-Monteiro-----------------------
     rank_constraint = trunc.(Int, sqrt(2*n));
-    rounding_trials = 5000;
 
     #Burer-Monteiro
     #parameters
@@ -140,12 +139,12 @@ function main(parsed_args)
     
     #randomized-rounding
 
-    rounding_trials = 5000;
+    rounding_trials = 1000;
 
     global cutVal = 0.0;
     global cutAssignment = zeros(1, dimension);
 
-    t=time()
+    t=time_ns();
     for cut_trials = 1:rounding_trials
         r = rand(Normal(), 1, rank_constraint);
         r = r/sqrt(dot(r, r));
@@ -185,7 +184,7 @@ function main(parsed_args)
     cutAssignment = trunc.(Int, cutAssignment);
 
 
-    total_time = (time_ns() - t)/1.0e9;
+    total_time = (time_ns() - t)/1.0e9 + elapsedTime;
 
 
     for i = 1:dimension
@@ -199,7 +198,6 @@ function main(parsed_args)
         cutAssignment = cutAssignment*cutAssignment[dimension];
     end
     cutAssignment = trunc.(Int, cutAssignment);
-    #evaluation = scale*(transpose(cutAssignment)*Cost_Matrix*cutAssignment + offset);
 
     #form bqpjson solution to the bqp file
     result = vec(cutAssignment);
