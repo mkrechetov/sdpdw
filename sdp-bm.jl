@@ -1,13 +1,12 @@
 #!/usr/bin/env julia
 
+#julia 0.6.2
+
 using ArgParse
 using JSON
 
 using Distributions
 using CPUTime
-
-using LinearAlgebra
-
 
 function main(parsed_args)
     #read the problem
@@ -76,75 +75,58 @@ function main(parsed_args)
 
     #--------------------------------Burer-Monteiro-----------------------
     rank_constraint = trunc.(Int, sqrt(2*n));
-
-    #Burer-Monteiro
     #parameters
-    
-    ##Intialize randomly on sphere_k
-    global V = rand(Normal(), rank_constraint, dimension);
+    time_limit = 20;
+
+    #Intialize randomly on sphere_k
+    V = rand(Normal(), rank_constraint, dimension);
     #normalize columns
-    for columns = 1:dimension
-        normalizer = sqrt(sum(V[:, columns].*V[:, columns]));
-        V[:, columns] = V[:, columns]/normalizer;
-    end
+    v = [1/norm(V[:, col], 2) for col in 1:dimension];
+    V = V.*v';
 
-    Lconst = norm(Cost_Matrix, 2);
+    Lconst = norm(vec(Cost_Matrix), 2);
     step = 1/(Lconst);
-    
-    #variable for stopping rule
-    global lambda = zeros(1, dimension);
-    global Matrix = V*Cost_Matrix;
-    for iter = 1:dimension
-        if (V[1, iter] == 0)
-            V[1, iter] += 0.00001;
-        end    
-        global lambda[iter] = Matrix[1, iter]/V[1, iter];    
-    end
 
-    global t1 = time_ns();
-    while (norm(Matrix - V*Diagonal(vec(lambda)), Inf) > 0.5) || (eigvals(Cost_Matrix - Diagonal(vec(lambda)))[1] < -0.1) 
-        gradient = 2*V*Cost_Matrix; 
-    
-        global V = V - step*gradient;
-        
-        for curr_column = 1:dimension
-        #normalize column
-            normalizer = sqrt(sum(V[:, curr_column].*V[:, curr_column]));
-            if (normalizer != 0)
-                V[:, curr_column] = V[:, curr_column]/normalizer;
-            end
+    t1 = time_ns();
+    while true
+        for iter = 1:1000
+            gradient = 2*V*Cost_Matrix; 
+
+            V = V - step*gradient;
+
+            v = [1/norm(V[:, col], 2) for col in 1:dimension];
+            V = V.*v';
         end
     
+    
+        #update stopping variables
+        lambda = zeros(1, dimension);
+        M = V*Cost_Matrix;
+        lambda = M[1, :]./V[1, :];
+
+        if (norm(M - V.*lambda', Inf) < 0.5) & (eigvals(Cost_Matrix - diagm(vec(lambda)))[1] > -0.1)
+            break;
+        end    
+
         if ((time_ns()-t1)/1.0e9 > time_limit)
             println("timeover");
             break;
         end
-    
-        #update stopping variables
-        global lambda = zeros(1, dimension);
-        global Matrix = V*Cost_Matrix;
-        for iter = 1:dimension
-            if (V[1, iter] == 0)
-                V[1, iter] += 0.00001;
-            end    
-        lambda[iter] = Matrix[1, iter]/V[1, iter];    
-        end   
-    end
+    end    
 
     t2 = time_ns();
     elapsedTime = (t2 - t1)/1.0e9;
 
-    #time_remain = time_limit - (time()-t);
+    time_remain = time_limit - (elapsedTime);
     #--------------------------------------------------------
     
     #randomized-rounding
 
     rounding_trials = 1000;
+    cutAssignment = zeros(1, dimension);
+    cutVal = -1;
 
-    global cutVal = 0.0;
-    global cutAssignment = zeros(1, dimension);
-
-    t=time_ns();
+    t=time_ns()
     for cut_trials = 1:rounding_trials
         r = rand(Normal(), 1, rank_constraint);
         r = r/sqrt(dot(r, r));
@@ -154,26 +136,26 @@ function main(parsed_args)
         end
 
         cutValnew = transpose(cut)*Cost_Matrix*cut; 
-    
+
         if (cut_trials == 1)
-            global cutVal = cutValnew;
-            global cutAssignment = cut;
+            cutVal = cutValnew;
+            cutAssignment = cut;
         elseif (cutValnew[1, 1] < cutVal[1, 1])
-            global cutVal = cutValnew;
-            global cutAssignment = cut;
+            cutVal = cutValnew;
+            cutAssignment = cut;
         end
-    
+
         # rounding for remaining time
         #if (cut_trials > 1000)
         #    if (time()-t > time_remain)
-        #        break;
+        #       break;
         #    end
         #end  
     end
 
     for i = 1:dimension
         if (cutAssignment[i] == 0)
-            global cutAssignment[i] = sign.(rand(Normal(), 1, 1)[1]);    
+            cutAssignment[i] = sign.(rand(Normal(), 1, 1)[1]);    
         end    
     end
 
@@ -198,6 +180,7 @@ function main(parsed_args)
         cutAssignment = cutAssignment*cutAssignment[dimension];
     end
     cutAssignment = trunc.(Int, cutAssignment);
+    #evaluation = scale*(transpose(cutAssignment)*Cost_Matrix*cutAssignment + offset);
 
     #form bqpjson solution to the bqp file
     result = vec(cutAssignment);
